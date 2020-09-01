@@ -18,7 +18,7 @@ CUDA中，运行在GPU上的并行计算函数称为kernel函数。kernel函数�
 
 block内的thread是执行计算的基本单位，一般一个block内最多可以发起1024个thread，有些卡可能最多支持768个，有些可能已经可以支持超过1024个thread。
 
-![](../img/grid_block_threads.png)
+![](../img/grid_block_threads.jpg)
 
 为了方便编程，CUDA中使用了dim3类型（dim3是基于unit3定义的矢量类型，相当于由3个unsigned int型组成的结构体）的内建变量blockDim、threadIdx、gridDim和blockIdx作为每个thread独立的参数，每个变量都可以是一维、二维或三维的，其代表的具体意义见下表：
 
@@ -44,6 +44,81 @@ kernelsample3d<<<blockNum, threadNum>>>();
 ```
 
 这里分别给出了一维、二维和三维时分别共发起16个block，每个block内发起512个thread的执行参数设定示例。对于非三维的情况，调用kernel时的执行参数可以省略不存在的维度，比如`kernelsample1d<<16, 512>>>();`就是直接发起了一维的16个block和每个block内512个thread。
+
+具体来说不同维度 grid 、block 的线程id计算方法：
+
+**grid 一维，block 一维:**
+
+```
+int threadId = blockIdx.x * blockDim.x + thradIdx.x;
+```
+
+**grid 一维，block 二维:**
+
+```
+int threadId = blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x + threadIdx.x;
+```
+
+**grid 一维，block 三维:**
+
+```
+int threadId = blockId.x * blockDim.x * blockDim.y * blockDim.z + 
+			  threadIdx.z * blockDim.x * blockDim.y +
+			  threadIdx.y * blockDim.x +
+			  threadIdx.x;
+```
+
+**grid 二维，block 一维:**
+
+```
+int blockId = blockIdx.y * gridDim.x + blockIdx.x;
+int threadId =  blockId * blockDim.x + threadIdx.x;
+```
+
+**grid 二维，block 二维:**
+
+```
+int blockId = blockIdx.y * gridDim.x + blockIdx.x;
+int thradId = blockId * blockDim.x * blockDim.y + 
+			 threadIdx.y * blockDim.x +
+			 threadIdx.x;
+```
+
+**grid 二维，block 三维:**
+
+```
+int blockId = blockIdx.y * gridDim.x + blockIdx.x;
+int thradId = blockId * blockDim.x * blockDim.y * blockDim.z + 
+			 threadIdx.z * blockDim.x * blockDim.y + 
+			 threadIdx.y * blockDim.x +
+			 threadIdx.x;
+```
+
+**grid 三维，block 一维:**
+
+```
+int blockId = blockIdx.z * gridDim.x * gridDim.y + blockIdx.y * gridDim.x + blockIdx.x;
+int threadId = blockId * blockDim.x + threadIdx.x;
+```
+
+**grid 三维，block 二维:**
+
+```
+int blockId = blockIdx.z * gridDim.x * gridDim.y + blockIdx.y * gridDim.x + blockIdx.x;
+int threadId = blockId * blockDim.x * blockDim.y + 
+			  threadIdx.y * blockDim.x + 
+			  threadx.x;
+```
+
+**grid 三维，block 三维:**
+
+```
+int blockId = blockIdx.z * girdDim.x * gridDim.y + blockIdx.y * gridDim.x + blockIdx.x;
+int threadId = blockId * blockDim.x * blockDim.y * blockDim.z + 
+			  threadIdx.z * blockDim.x * blockDim.y +
+			  threadIdx.y * blockDim.x +
+			  threadIdx.x;
+```
 
 kernel可以在启动时以零成本直接获得这几个内建变量值，即可以无需定义直接在kernel中使用这些变量名。
 
