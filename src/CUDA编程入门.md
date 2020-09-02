@@ -1,6 +1,12 @@
-# CUDA编程入门
+# 核函数
 
-## helloWorld
+在CUDA中一共有三种类型的函数，分别通过在函数声明前添加不同的限定符区别，具体区别如下表所示（这里为了便于区别，笔者分别给这三种函数取名为“host函数”、“kernel函数”和“device函数”。
+
+![](../img/kernel.png)
+
+
+
+# helloWorld
 
 ```
 #include <cstdio>
@@ -54,7 +60,7 @@ nvcc -ccbin g++ helloWorld.cu -o helloWorld
 
 “cudaDeviceSynchronize();”是在CPU端执行了一次CPU和GPU的同步，这样可以避免GPU中Hello World还没输出到屏幕时，main函数里已经执行到“return 0”退出程序。
 
-## checkDimension
+# checkDimension
 
 ```
 #include <cstdio>
@@ -109,14 +115,12 @@ grid_size.z = 1;
 
 发起kernel时，`<<<>>>` 内可以直接使用dim3类型的变量指定gridDim和blockDim，在上面的程序中，将发起（2×1×1）共2个block，每个block中发起（3×2×2）共12个thread。
 
-## ArraySum
+# ArraySum
 
 ```
 #include <iostream>
 #include <random>
 #include <cuda_runtime_api.h>
-
-
 
 double* InitializeArray(const int length,const int seed)
 {
@@ -212,21 +216,109 @@ nvcc -ccbin g++ arraySum.cu -o arraySum -std=c++11
 
 在GPU计算部分，程序首先用cudaSetDevice指定了使用的GPU编号。一般来说，在只有一块GPU的系统里，该GPU的编号默认为0，此时无须用cudaSetDevice也可以直接使用这块GPU。在多GPU的系统中，则可以直接指定对应编号的GPU进行计算，这些GPU的编号一般为0、1、2、…、N-1。
 
-在CPU端申请了h_A、h_B、h_C三个动态数组指针之后，程序对应地申请了d_A、d_B、d_C三个指针用来指向GPU上的global memory。特别指出，一般CUDA程序中在CPU和GPU上表意相同的变量往往在变量名前分别加上“h_”和“d_”区分这是在host上还是在device上的变量。
+# Max Elements of Arrays
 
-对于d_A、d_B、d_C，采用cudaMalloc的runtime API在GPU上申请指定大小的内存空间。为了能顺利调用这个API，需要加入`#include cuda_runtime_api.h` （几乎所有的CUDA程序都需要include它）。
+```
+#include <iostream>
+#include <random>
+#include <cuda_runtime_api.h>
 
-申请好空间后，通过cudaMemcpy将h_A和h_B的数据拷贝到d_A和d_B中，这样GPU上就拥有了需要计算的数据。
+double* InitializeArray(const int length,const int seed)
+{
+	double* Array = (double*)malloc(length*sizeof(double));
+	std::default_random_engine e;
+	std::uniform_real_distribution<double> dist(0,10);
+	e.seed(seed);
+	for(int i=0;i<length;++i)
+			Array[i] = dist(e);
+	return Array;
+}
 
-ArraySumKernel则很简单，根据数组的length创建对应数量的thread，每个thread分别计算对应的C[i] = A[i] + B[i]。也就是ArraySumKernel实现了对“for (int i = 0; i < length; ++i)”的并行。
+void PrintArray(double *Array, const int length, const std::string& str) {
+	std::cout << "Array " << str << ":";
+	for (int i = 0; i < length; ++i)
+		std::cout << " " << Array[i];
 
-计算结束后，仍然使用cudaMemcpy将计算好的d_C数据拷回h_C中，这样就得到了通过GPU计算的正确结果。
+	std::cout << std::endl;
+}
 
-在完成整个程序的计算后，不要忘记free CPU内存指针和使用cudaFree释放指向global memory的指针。
+__host__ __device__ double maxElement(double a, double b, double c)
+{
+	if(a >= b && a >= c)
+			return a;
+	if(b >= c)
+			return b;
+	return c; 
+}
 
 
+void MaxElements(double *A,double *B,double *C,double *D,const int length)
+{
+	for(int i=0;i<length;++i)
+			D[i] = maxElement(A[i],B[i],C[i]);
+}     
 
 
+__global__ void MaxElementsKernel(double *A, double *B, double *C, double *D) 
+{
+	int i = threadIdx.x; 
+	D[i] = maxElement(A[i], B[i], C[i]);
+}  
+
+
+int main()
+{
+	const int length = 10;
+	const size_t size = length * sizeof(double);
+	double *h_A, *h_B, *h_C, *h_D;
+
+	h_A = InitializeArray(length,0);
+	h_B = InitializeArray(length,5);
+	h_C = InitializeArray(length,10);
+	h_D = (double*)malloc(size);
+
+	PrintArray(h_A, length, "A");
+	PrintArray(h_B, length, "B");
+	PrintArray(h_C, length, "C");
+	
+	std::cout << "CPU Result:\n";
+	MaxElements(h_A, h_B, h_C, h_D,length);		
+	PrintArray(h_D, length, "D");
+
+	std::cout << "GPU Result:\n";
+	
+	
+	double *d_A, *d_B, *d_C, *d_D;
+	cudaMalloc((void **)&d_A, size);
+	cudaMalloc((void **)&d_B, size);
+	cudaMalloc((void **)&d_C, size);
+	cudaMalloc((void **)&d_D, size);
+
+	cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_C, h_C, size, cudaMemcpyHostToDevice);
+
+	MaxElementsKernel<<<1, length>>>(d_A, d_B, d_C, d_D);
+
+	cudaMemcpy(h_D, d_D, size, cudaMemcpyDeviceToHost);
+	PrintArray(h_D, length, "D");
+
+
+	free(h_A);
+	free(h_B);
+	free(h_C);
+	free(h_D);
+
+	cudaFree(d_A);
+	cudaFree(d_B);
+	cudaFree(d_C);
+	cudaFree(d_D);
+
+	return 0;
+}
+```
+
+![](../img/maxElement.png)
 
 
 
